@@ -80,6 +80,22 @@ def fuse_conv_bn_weights(
     Returns:
         Tuple[torch.nn.Parameter, torch.nn.Parameter]: Fused convolutional weight and bias.
     """
+    expected_bn_shape = (conv_w.shape[1 if transpose else 0],)
+    for name, tensor, is_affine in (
+        ("bn_rm", bn_rm, False),
+        ("bn_rv", bn_rv, False),
+        ("bn_w", bn_w, True),
+        ("bn_b", bn_b, True),
+    ):
+        if tensor is None or tensor.shape == expected_bn_shape:
+            continue
+        # batch_norm accepts scalar affine parameters for a single channel.
+        if is_affine and expected_bn_shape == (1,) and tensor.ndim == 0:
+            continue
+        raise ValueError(
+            f"{name} must have shape {expected_bn_shape}, got {tuple(tensor.shape)}"
+        )
+
     conv_weight_dtype = conv_w.dtype
     conv_bias_dtype = conv_b.dtype if conv_b is not None else conv_weight_dtype
     if conv_b is None:

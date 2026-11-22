@@ -18168,6 +18168,7 @@ class TestFunctionalPickle(TestCase):
         s = pickle.dumps(F.softsign)
 
 
+@instantiate_parametrized_tests
 class TestFusionUtils(TestCase):
     hw_classification = HardwareClassification.GENERIC
 
@@ -18183,6 +18184,47 @@ class TestFusionUtils(TestCase):
                                      bn.running_mean, bn.running_var, bn.eps, bn.weight, bn.bias)
             self.assertEqual(weight.requires_grad, w_rg)
             self.assertEqual(bias.requires_grad, b_rg)
+
+    @parametrize_test("transpose", [False, True])
+    @parametrize_test("bn_arg", ["bn_rm", "bn_rv", "bn_w", "bn_b"])
+    @parametrize_test("invalid_shape", [(1, 4), (1,)])
+    def test_fuse_conv_bn_rejects_invalid_bn_shape(self, transpose, bn_arg, invalid_shape):
+        conv_cls = nn.ConvTranspose2d if transpose else nn.Conv2d
+        conv = conv_cls(3, 4, 3)
+        bn = nn.BatchNorm2d(4)
+        kwargs = {
+            "conv_w": conv.weight,
+            "conv_b": conv.bias,
+            "bn_rm": bn.running_mean,
+            "bn_rv": bn.running_var,
+            "bn_eps": bn.eps,
+            "bn_w": bn.weight,
+            "bn_b": bn.bias,
+            "transpose": transpose,
+        }
+        kwargs[bn_arg] = torch.ones(invalid_shape)
+
+        with self.assertRaisesRegex(ValueError, rf"{bn_arg} must have shape"):
+            fuse_conv_bn_weights(**kwargs)
+
+    @parametrize_test("transpose", [False, True])
+    def test_fuse_conv_bn_single_channel_scalar_affine(self, transpose):
+        conv_cls = nn.ConvTranspose2d if transpose else nn.Conv2d
+        dtype = torch.float64
+        conv = conv_cls(3, 1, 3, dtype=dtype)
+        inputs = torch.randn(2, 3, 5, 5, dtype=dtype)
+        mean = torch.tensor([0.25], dtype=dtype)
+        variance = torch.tensor([1.5], dtype=dtype)
+        weight = torch.tensor(2.0, dtype=dtype)
+        bias = torch.tensor(-0.5, dtype=dtype)
+        eps = 1e-5
+        expected = F.batch_norm(conv(inputs), mean, variance, weight, bias, eps=eps)
+
+        conv.weight, conv.bias = fuse_conv_bn_weights(
+            conv.weight, conv.bias, mean, variance, eps, weight, bias, transpose
+        )
+
+        self.assertEqual(conv(inputs), expected)
 
     def test_fuse_linear_bn_requires_grad(self):
         linear = torch.nn.Linear(3, 3)
