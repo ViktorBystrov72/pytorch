@@ -191,9 +191,11 @@ class dual_level(_DecoratorContextManager):
         control the current forward AD level, which is used by default by the other
         functions in this API.
 
-        We currently don't plan to support nested ``dual_level`` contexts, however, so
-        only a single forward AD level is supported. To compute higher-order
-        forward grads, one can use :func:`torch.func.jvp`.
+        Only one forward AD level can be active at a time across all threads.
+        Use synchronization to enter each ``dual_level`` context after the previous
+        one has exited. Entering a context while a level is active raises a
+        :exc:`RuntimeError`. To compute higher-order forward gradients, use
+        :func:`torch.func.jvp`.
 
     Example::
 
